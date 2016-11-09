@@ -219,7 +219,7 @@ def GetArgs():
                         help="""If true, remove egs after experiment""")
     parser.add_argument("--cleanup.preserve-model-interval", dest = "preserve_model_interval",
                         type=int, default=100,
-                        help="Determines iterations for which models will be preserved during cleanup. If iter % preserve_model_interval == 0 model will be preserved.")
+                        help="Determines iterations for which models will be preserved during cleanup. If mod(iter,preserve_model_interval) == 0 model will be preserved.")
 
     parser.add_argument("--reporting.email", dest = "email",
                         type=str, default=None, action = NullstrToNoneAction,
@@ -690,7 +690,7 @@ def Train(args, run_opts):
                     [report, times, data] = nnet3_log_parse.GenerateAccuracyReport(args.dir)
                     message = report
                     subject = "Update : Expt {dir} : Iter {iter}".format(dir = args.dir, iter = iter)
-                    sendMail(message, subject, args.email)
+                    SendMail(message, subject, args.email)
 
         num_archives_processed = num_archives_processed + current_num_jobs
 
@@ -724,7 +724,7 @@ def Train(args, run_opts):
     # do some reporting
     [report, times, data] = nnet3_log_parse.GenerateAccuracyReport(args.dir)
     if args.email is not None:
-        sendMail(report, "Update : Expt {0} : complete".format(args.dir), args.email)
+        SendMail(report, "Update : Expt {0} : complete".format(args.dir), args.email)
 
     report_handle = open("{dir}/accuracy.report".format(dir = args.dir), "w")
     report_handle.write(report)
@@ -740,19 +740,9 @@ def Main():
     except Exception as e:
         if args.email is not None:
             message = "Training session for experiment {dir} died due to an error.".format(dir = args.dir)
-            sendMail(message, message, args.email)
+            SendMail(message, message, args.email)
         traceback.print_exc()
         raise e
-
-def SendMail(message, subject, email_id):
-    try:
-        subprocess.Popen('echo "{message}" | mail -s "{subject}" {email} '.format(
-            message = message,
-            subject = subject,
-            email = email_id), shell=True)
-    except Exception as e:
-        logger.info(" Unable to send mail due to error:\n {error}".format(error = str(e)))
-        pass
 
 if __name__ == "__main__":
     Main()

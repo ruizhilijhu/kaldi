@@ -4,12 +4,12 @@ current_path=`pwd`
 current_dir=`basename "$current_path"`
 
 if [ "tools" != "$current_dir" ]; then
-    echo "You should run this script in tools/ directery!!"
+    echo "You should run this script in tools/ directory!!"
     exit 1
 fi
 
-if [ ! -f liblbfgs-1.10 ]; then
-    echo Intalling libLBFGS library to support MaxEnt LMs
+if [ ! -d liblbfgs-1.10 ]; then
+    echo Installing libLBFGS library to support MaxEnt LMs
     bash extras/install_liblbfgs.sh || exit 1
 fi
 
@@ -43,7 +43,7 @@ grep ADDITIONAL_INCLUDES common/Makefile.machine.$mtype | \
     >> common/Makefile.machine.$mtype
 
 grep ADDITIONAL_LDFLAGS common/Makefile.machine.$mtype | \
-    sed 's|$| -L$(SRILM)/../liblbfgs-1.10/lib/.libs|' \
+    sed 's|$| -L$(SRILM)/../liblbfgs-1.10/lib/ -Wl,-rpath -Wl,$(SRILM)/../liblbfgs-1.10/lib/|' \
     >> common/Makefile.machine.$mtype
 
 
@@ -73,5 +73,5 @@ cd ..
 ) >> env.sh
 
 echo >&2 "Installation of SRILM finished successfully"
-echo >&2 "Please source the tools/extras/env.sh in your path.sh to enable it"
+echo >&2 "Please source the tools/env.sh in your path.sh to enable it"
 
