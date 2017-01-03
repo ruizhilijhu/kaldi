@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
 
     int32 num_done = 0, num_err = 0;
     int64 count = 0;
-    SpMatrix<double> coact_sq;
+    Matrix<double> coact;
 
     SequentialBaseFloatMatrixReader feat_reader(rspecifier);
     
@@ -41,15 +41,15 @@ int main(int argc, char *argv[]) {
 	num_err++;
 	continue;
       }
-      if (coact_sq.NumCols() == 0) {
-	coact_sq.Resize(mat.NumCols());
+      if (coact.NumCols() == 0) {
+	coact.Resize(mat.NumCols(), mat.NumCols());
       }
-      if (coact_sq.NumCols() != mat.NumCols()) {
-	KALDI_WARN << "Feature dimension mismatch " << coact_sq.NumCols() << " vs. " << mat.NumCols();
+      if (coact.NumCols() != mat.NumCols()) {
+	KALDI_WARN << "Feature dimension mismatch " << coact.NumCols() << " vs. " << mat.NumCols();
 	num_err++;
 	continue;
       }
-      coact_sq.AddMat2(1.0, mat, kTrans, 1.0);
+      coact.AddMatMat(1.0, mat, kTrans, mat, kNoTrans, 1.0);
       count += mat.NumRows();
       num_done++;
     }
@@ -58,9 +58,9 @@ int main(int argc, char *argv[]) {
     
     if (num_done == 0)
       KALDI_ERR << "No data accumulated.";
-    coact_sq.Scale(1.0 / count);
+    coact.Scale(1.0 / count);
 
-    WriteKaldiObject(coact_sq, coact_mat_wxfilename, binary);
+    WriteKaldiObject(coact, coact_mat_wxfilename, binary);
 
     return 0;
   } catch(const std::exception &e) {
