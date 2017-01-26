@@ -103,10 +103,10 @@ void Ncca::Eval(const VectorBase<BaseFloat> &frame_weights,
   // Compute Frobenius norm loss of mini-batch
   double frobenius_norm_loss = pow(diff_cm_target_.FrobeniusNorm(),2);  // sum the matrix,
   
-  if ( minibatches_ == minibatch_idx ) {
-    KALDI_VLOG(1) << "Frobenius norm loss (of current minibatch): "
+  //if ( minibatches_ == minibatch_idx ) {
+  KALDI_VLOG(1) << "Frobenius norm loss (of current minibatch): "
 		  << frobenius_norm_loss;      
-  }
+  //}
 
   KALDI_ASSERT(KALDI_ISFINITE(frobenius_norm_loss));
   

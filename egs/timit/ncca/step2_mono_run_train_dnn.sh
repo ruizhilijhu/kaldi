@@ -4,26 +4,27 @@
 # 0) monophone training and decoding 
 # 1) monophone aligment
 # 2) train dnn
-# 3) dnn decoding on all data set
+# 3) dnn decoding on clean data set
 # 4) extract bn features for all layers (post activations) (dnn-bn)
 # 5) compute co-activation matrices for all layers (dnn_cm-1)
 
 
 # CONFIG
 feats_nj=10
-train_nj=30
+train_nj=10
 decode_nj=20
-stage=5
+stage=1
 data_fbank_clean=data-fbank13-clean
 data_fbank_allnoise=data-fbank13-allnoise
 dropout_schedule=0.2,0.2,0.2,0.2,0.2,0.0
-
+dnn_hidden_unit=256
 exp=
 
 . ./cmd.sh 
 [ -f path.sh ] && . ./path.sh
 . utils/parse_options.sh || exit 1
 
+dnnid=mono_dnn-${dnn_hidden_unit}
 set -e # Exit immediately if a command exits with a non-zero status.
 echo "$0 $@"  # Print the command line for logging
 
@@ -53,20 +54,31 @@ outdir=exp/mono_ali # the only output
 if [ $stage -le 1 ]; then
     
     steps/align_si.sh --boost-silence 1.25 --nj "$train_nj" --cmd "$train_cmd" \
-		      data/train data/lang $outdir0 $outdir/train
+    		      data/train data/lang $outdir0 $outdir/train
     steps/align_si.sh --boost-silence 1.25 --nj "$train_nj" --cmd "$train_cmd" \
-		      data/dev  data/lang $outdir0 $outdir/dev
+    		      data/dev  data/lang $outdir0 $outdir/dev
+    steps/align_si.sh --boost-silence 1.25 --nj "$train_nj" --cmd "$train_cmd" \
+    		      data/test  data/lang $outdir0 $outdir/test
+    
+
+    noiseList=`ls $data_fbank_allnoise/dev`
+    for x in ${noiseList[@]}; do
+	for d in dev test; do
+	    (
+		steps/align_si.sh --boost-silence 1.25 --nj "$train_nj" --cmd "$train_cmd" \
+				  data-allnoise/$d/$x  data/lang $outdir0 $outdir/data-allnoise/$d/$x || exit 1
+	    ) & sleep 10
+	done
+    done
     
 fi
 outdir1=$outdir
 
 
-
-
 echo ============================================================================
 echo "                Training DNN                                              "
 echo ============================================================================
-outdir=exp/dnn # the only output
+outdir=exp/${dnnid} # the only output
 if [ $stage -le 2 ]; then
     
     # input config
@@ -79,7 +91,7 @@ if [ $stage -le 2 ]; then
 	      --hid-layers 5 \
 	      --splice 5 \
 	      --learn-rate 0.008 \
-	      --hid-dim 256 \
+	      --hid-dim ${dnn_hidden_unit} \
 	      --cmvn_opts "--norm-vars=true --norm-means=true" \
 	      --delta_opts "--delta-order=2" \
 	      --proto-opts "--with-dropout" \
@@ -94,7 +106,7 @@ outdir2=$outdir
 echo ============================================================================
 echo "                Decoding on all data set (CLEAN and Allnoise)             "
 echo ============================================================================
-outdir=exp/dnn # the only output
+outdir=exp/${dnnid} # the only output
 if [ $stage -le 3 ]; then
     
     #    decode on clean
@@ -124,7 +136,7 @@ outdir3=$outdir
 echo ============================================================================
 echo "                Extract BN features for each layer               "
 echo ============================================================================
-outdir=exp/dnn-bn # the only output
+outdir=exp/${dnnid}-bn # the only output
 if [ $stage -le 4 ]; then
     mkdir -p $outdir
     idxComponents=$(nnet-info $outdir2/final.nnet | grep 'Sigmoid\|Softmax' | awk '{print $2}')
@@ -148,7 +160,7 @@ outdir4=$outdir
 echo ============================================================================
 echo "                Compute co-activation matrix for each layer               "
 echo ============================================================================
-outdir=exp/dnn-bn_cm # the only output
+outdir=exp/${dnnid}-bn_cm # the only output
 if [ $stage -le 5 ]; then
     mkdir -p $outdir
     idxComponents=$(nnet-info $outdir2/final.nnet | grep 'Sigmoid\|Softmax' | awk '{print $2}')

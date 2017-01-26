@@ -6,10 +6,11 @@
 # 2) Extract MFCC for CLEAN (trn dev test)
 # 3) Extract Fbank for CLEAN (trn dev test)
 # 4) Extract Fbank for AllNoise (dev test)
+# 5) Extract MFCC for Allnoise (dev test)
 
 # CONFIG
 feats_nj=10
-stage=0
+stage=5
 
 . ./cmd.sh 
 [ -f path.sh ] && . ./path.sh
@@ -137,6 +138,32 @@ if [ $stage -le 4 ]; then
     done
 fi
 outdir4=$outdir
+
+
+echo ============================================================================
+echo "              Extract MFCC for ALLNOISE (dev test)                       "
+echo ============================================================================
+outdir=data-allnoise
+if [ $stage -le 5 ]; then
+    # MFCC
+
+    noiseList=`ls $outdir4/dev`
+    for x in ${noiseList[@]}; do
+	for d in dev test; do
+	    (
+		mkdir -p $outdir/$d/$x
+		for file in glm spk2utt utt2spk text wav.scp stm; do
+		    cp $outdir4/$d/$x/$file $outdir/$d/$x/$file
+		done
+		steps/make_mfcc.sh --cmd "$train_cmd" --nj $feats_nj $outdir/$d/$x $outdir/$d/$x/log $outdir/$d/$x/data || exit 1
+		steps/compute_cmvn_stats.sh $outdir/$d/$x $outdir/$d/$x/log $outdir/$d/$x/data || exit 1
+	    ) & sleep 10
+	done
+    done
+
+fi
+outdir5=$outdir
+
 
 
 echo ============================================================================

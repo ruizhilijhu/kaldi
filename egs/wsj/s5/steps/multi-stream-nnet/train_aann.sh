@@ -1,4 +1,4 @@
-y#!/bin/bash
+#!/bin/bash
 
 # Copyright 2012/2014  Brno University of Technology (Author: Karel Vesely)
 # Apache 2.0
