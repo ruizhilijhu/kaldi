@@ -2,14 +2,17 @@
 
 # This script does cm-based dnn adaptation based on one coactivation matrix (one layer for one data)
 # this script does everything but postAdapting decoding 
+
 # 0) preadapt DNN preparation -- Split DNN into two parts final.nnet.1 final.nnet.2 and feature transform
+# + preadapt aann preparation
 # 1) extract bn feats: clean and adapted data
-# 2) compute fn loss: clean and adapted data
-# 3) dnn decode: clean and adapted data (paralell): (WER, FRM_ACC)
+# 2) compute mse loss: clean and adapted data 
+# 3) dnn decode: clean and adapted data (paralell): (WER, FRM_ACC) (if aann-ncca, fn loss is computed here)
 # 4) adaptation 
-# 5) Preparation : DNN dir (Post Adaptation) & FN decode & dnn decode
-# 6) Post Adaptation: FN decode 
+# 5) Preparation : DNN dir (Post Adaptation)
+# 6) Post Adaptation: MSE decode 
 # 7) Post Adaptation: DNN decode: WER FRM_ACC 
+# 8) Post Adaptation: FN decode: FN if aann-ncca 
 
 
 # CONFIG
@@ -19,15 +22,15 @@ decode_nj=20
 stage=0
 
 # dnn
-dnnid="mono_dnn-256"  # mono_dnn-256 as a dnnid (used only for output dir)
-first_components=2
-mlp= # option
+dnnid= # "mon_dnn-256"  # mono_dnn-256 as a dnnid (used only for output dir)
+first_components= # 2
+mlp= # option for non begining layer
 dnnDir= # dnnDir to be copied from 
 
 # data 
 data_fbank_clean=data-fbank13-clean
 data_fbank_allnoise=data-fbank13-allnoise
-noise=babble-10
+noise= # babble-10
 
 # adapt
 adapt_scp_opt= # options for other training scp
@@ -40,17 +43,22 @@ keep_lr_iters=250
 max_iters=400
 adaptid= # options for parameter analysis (used only for output dir)
 frm_acc_decode="yes"
-fn_decode="yes"
+mse_decode="yes"
 wer_decode="no"
+fn_decode="no"
+objective_function="aann"  # aann-ncca 
 
 # post decode
 iter_step=20
-decode_subsets="dev test"
-decode_noises="babble-10 CLEAN"
-fn_mb_opt="no"
+decode_subsets= # "dev test"
+decode_noises= # "babble-10 CLEAN"
 
 # monophone model
 gmmdir=exp/mono
+
+# aann dir
+aannDir=
+
 
 . ./cmd.sh 
 [ -f path.sh ] && . ./path.sh
@@ -59,8 +67,8 @@ gmmdir=exp/mono
 set -e # Exit immediately if a command exits with a non-zero status.
 echo "$0 $@"  # Print the command line for logging
 
-# reference coactivation matrix
-ref_cm=exp/${dnnid}-bn_cm/${first_components}.mat
+# aann
+[ -z $aannDir ] && echo "Missing AANN dir!" && exit 1
 
 # dnn
 if [ ! -z $mlp ]; then
@@ -83,14 +91,12 @@ echo "OUTPUT DIR: "${expid}
 
 ###### STEPS #####
 echo ============================================================================
-echo "              Preparation: DNN(Trimmed)                                   "
+echo "              Preparation: DNN(Trimmed) & AANN(Non-updatable)             "
 echo ============================================================================
 outdir=${expid}/preAdapt-dnn # the only output
 if [ $stage -le 0 ]; then
-
     # copy dnn dir
-    [ ! -d $outdir ] && rsync -ar --exclude '*decode*' $dnnDir/ $outdir || exit 1
-
+    [ ! -d $outdir ] && rsync -avr --exclude '*decode*' $dnnDir/ $outdir || exit 1
 
     # if specify initial nnet other than the defalut final.net
     if [ ! -z $mlp ]; then
@@ -119,26 +125,38 @@ if [ $stage -le 0 ]; then
     	nnet-set-learnrate --components=`seq -s ":" 1 $numLayersFreeze` --coef=0 ${outdir}/final.nnet.tmp $outdir/final.nnet 
     fi
 
-
+    
     # split final.nnet into final.nnet.1 final.nnet.2
     [ -f $outdir/final.nnet.1 ] && rm $outdir/final.nnet.1
     [ -f $outdir/final.nnet.2 ] && rm $outdir/final.nnet.2
     [ -f $outdir/final.nnet.tmp ] && rm $outdir/final.nnet.tmp
+    [ -f $outdir/final.nnet.1.aann.ft ] && rm $outdir/final.nnet.1.aann.ft
 
     nnet-copy --remove-last-components=$last_components $outdir/final.nnet $outdir/final.nnet.1 >$outdir/log/trim_dnn.log 2>&1 || exit 1
     nnet-copy --remove-first-components=$first_components $outdir/final.nnet $outdir/final.nnet.2 >>$outdir/log/trim_dnn.log 2>&1|| exit 1
+
+    # AANN: copy aann.nnet and aann.ft and make aann.nnet non-updatable
+    [ -d $outdir/aann ] && rm -r $outdir/aann
+    mkdir -p $outdir/aann
     
+    aann_mlp=$outdir/aann/aann.nnet
+    aann_ft=$outdir/aann/aann.ft
+    
+    numComponents_aann=`nnet-info $aannDir/final.nnet | grep num-components | awk '{print $2}'`
+    nnet-set-learnrate --components=`seq -s ":" 1 $numComponents_aann` --coef=0 $aannDir/final.nnet $aann_mlp 
+    cp $aannDir/final.feature_transform $aann_ft
+    nnet-concat $aann_ft $aann_mlp $outdir/aann/aann.ft.nnet # used for adaptation    
+    nnet-concat $outdir/final.nnet.1 $outdir/aann/aann.ft $outdir/final.nnet.1.aann.ft
 fi
 outdir0=$outdir
-
 
 
 echo ============================================================================
 echo "       Pre-Adaptation: Extract BN features for clean and adapted data     "
 echo ============================================================================
-outdir=${expid}/preAdapt-dnn_bn # the only output
+outdir=${expid}/preAdapt-dnn/mse_decode_bn # the only output
 if [ $stage -le 1 ]; then
-    if [ ${fn_decode} == "yes" ];then
+    if [ ${mse_decode} == "yes" ];then
 	mkdir -p $outdir
 	for d in ${decode_subsets}; do
 	    for n in ${decode_noises}; do	    
@@ -155,20 +173,17 @@ outdir1=$outdir
 
 
 echo ============================================================================
-echo "      Pre-Adaptation: Compute fn loss for clean and adapted data          "
+echo "      Pre-Adaptation: Compute mse loss for clean and adapted data  "
 echo ============================================================================
-outdir=${expid}/preAdapt-dnn_bn_fn # the only output
+outdir=${expid}/preAdapt-dnn/mse_decode # the only output
 if [ $stage -le 2 ]; then
     for d in ${decode_subsets}; do
 	for n in ${decode_noises}; do
 	    mkdir -p $outdir/$d/$n
-	    compute-fn-loss --global=true ${ref_cm} scp:${outdir1}/$d/$n/feats.scp ark,t:- | awk '{print $3}' > $outdir/$d/$n/fn-loss || exit 1
-	    # mb level fn loss
-	    local/ncca/compute_fn_loss.sh \
-		--minibatch_size $minibatch_size \
-		--cmd "$decode_cmd" \
-		--mlp $outdir0/final.nnet.1 \
-		${data_fbank_allnoise}/$d/$n ${ref_cm} $outdir0 $outdir/$d/$n/mb${minibatch_size} || exit 1
+	    local/aann/compute_mse_aann.sh --mlp $outdir0/final.nnet.1.aann.ft \
+					   --cmd "$decode_cmd" \
+					   --aann_mlp $outdir0/aann/aann.nnet \
+					   ${data_fbank_allnoise}/$d/$n $outdir0 $outdir/$d/$n || exit 1    
 	done
     done
 fi
@@ -184,10 +199,21 @@ if [ $stage -le 3 ]; then
     for d in ${decode_subsets}; do
 	for n in ${decode_noises}; do
 	    (
-    		    steps/nnet/decode.sh --nj $decode_nj --cmd "$decode_cmd" --acwt 0.2 \
-    		 			 $gmmdir/graph $data_fbank_allnoise/$d/$n $outdir/decode_${d}_${n} || exit 1;
-		    local/ncca/compute_frm_acc.sh --mlp $outdir/final.nnet --cmd "$decode_cmd" $data_fbank_allnoise/$d/$n ${gmmdir}_ali/data-allnoise/$d/$n $outdir $outdir/frm_decode/$d/$n || exit 1
-    	    ) & sleep 10	    
+    		steps/nnet/decode.sh --nj $decode_nj --cmd "$decode_cmd" --acwt 0.2 \
+    		 		     $gmmdir/graph $data_fbank_allnoise/$d/$n $outdir/decode_${d}_${n} || exit 1;
+$outdir/fn_decode/$d/$n	    ) & sleep 10
+	    
+	    # frm acc
+	    local/ncca/compute_frm_acc.sh --mlp $outdir/final.nnet --cmd "$decode_cmd" $data_fbank_allnoise/$d/$n ${gmmdir}_ali/data-allnoise/$d/$n $outdir $outdir/frm_decode/$d/$n || exit 1
+	    
+	    # fn	    
+	    if [ "$fn_decode" == "yes" && "${objective_function}" == "aann-aann" ]; then
+		local/aann/compute_fn_loss_aann-ncca.sh --cmd "$decode_cmd" \
+							--mlp $outdir0/final.nnet.1.aann.ft \
+							--minibatch_size ${minibatch_size} \
+							--aann_mlp $outdir0/aann/aann.nnet \
+							${data_fbank_allnoise}/$d/$n $outdir0 $outdir/fn_decode/$d/$n || exit 1	
+	    fi
 	done
     done    
 fi
@@ -202,23 +228,31 @@ if [ $stage -le 4 ]; then
 
     # # learning rate modification
     if [ "${lr_adapt}" == "yes" ]; then
-	if [ "${fn_mb_opt}" == "yes" ]; then
- 	    err=$(cat $outdir2/test/$noise/mb${minibatch_size}/fn-loss) 	    
+	
+	if [ $objective_function == "aann" ];then
+	    echo "Objective Function: aann"
+	    echo "ERR is calculated in frame base"
+	    err=$(cat $outdir2/test/$noise/mse_frm)	    
+	elif [ $objective_function == "aann-ncca" ]; then
+	    echo "Objective Function: aann-ncca"
+	    echo "ERR is calculated in minibatch base"
+	    err=$(cat $outdir3/fn_decode/test/$noise/fn_mb)
 	else
-	    err=$(cat $outdir2/test/$noise/fn-loss) 
+	    echo "wrong objective function $objective_function" && exit 1
 	fi
 	lr=$(awk "BEGIN{print($lr/$err)}")
-	echo "Learning rate is adjusted by eer ($eer) --> $lr, [minibatch-level: ${fn_mb_opt}]"
+	echo "Learning rate is adjusted by eer ($eer) --> $lr"
     fi
 
     
     feature_transform=$outdir0/final.feature_transform
-    mlp_init=$outdir0/final.nnet.1
+    mlp_init=$outdir0/final.nnet.1.aann.ft
 
     # train options passed as options for schedule
     train_tool_opts="--minibatch-size=${minibatch_size} --randomizer-seed=${randomizer_seed} --randomizer-size=${randomizer_size}"
     train_options="--keep-lr-iters ${keep_lr_iters}"
     train_options="${train_options} --max-iters $max_iters"
+    train_tool="nnet-train-frmshuff-ncca --objective-function=${objective_function} --aann-mlp-filename=$outdir0/aann/aann.nnet"
     
     (tail --pid=$$ -F $outdir/log/train_nnet.log 2>/dev/null)& # forward log
     $cuda_cmd $outdir/log/train_ncca.log \
@@ -228,12 +262,14 @@ if [ $stage -le 4 ]; then
 	      --learn-rate $lr \
     	      --copy-feats "false" --skip-cuda-check "true" \
     	      --feature-transform "$feature_transform" \
-    	      --train-tool "nnet-train-frmshuff-ncca --objective-function=ncca --ncca-ref-mat=${ref_cm}" \
+    	      --train-tool "${train_tool}" \
 	      --train-tool-opts "${train_tool_opts}" \
 	      ${adapt_scp_opt:+ --adapt_scp_opt "$adapt_scp_opt"} \
     	      ${data_fbank_allnoise}/test/${noise} ${data_fbank_allnoise}/dev/${noise} $outdir || exit 1
 fi
 outdir4=$outdir
+
+
 
 
 echo ============================================================================
@@ -252,11 +288,11 @@ outdir5=$outdir
 
 
 echo ============================================================================
-echo "       Post-Adaptation: Extract BN and Compute FN-loss                    "
+echo "       Post-Adaptation: Extract BN and Compute MSE-loss                    "
 echo ============================================================================
-outdir=${expid}/postAdapt-dnn/fn_decode # the only output
+outdir=${expid}/postAdapt-dnn/mse_decode # the only output
 if [ $stage -le 6 ]; then
-    if [ ${fn_decode} == "yes" ];then
+    if [ ${mse_decode} == "yes" ];then
 
 	# initial results (copy from preAdapt)
 	for d in ${decode_subsets}; do
@@ -272,32 +308,35 @@ if [ $stage -le 6 ]; then
 	# iterate over selected epochs
 	for iter in `seq -f"%03g" 1 ${iter_step} ${keep_lr_iters}` ;do
 	    
-	    # create fn decode dir
+	    # create mse decode dir
 	    [ ! -d ${outdir}/$iter ] && mkdir -p ${outdir}/$iter
 	    
 	    # create the adapted dnn
 	    nnet_id=$(basename ${outdir5}/nnet/*iter${iter}*)
-	    echo "FN decoding: ${nnet_id}"
-	    nnet-concat ${outdir5}/nnet/${nnet_id} $outdir0/final.nnet.2 $outdir/${iter}/final.nnet
-	    ln -s $PWD/${outdir5}/nnet/${nnet_id} $outdir/${iter}/final.nnet.1
+	    echo "MSE decoding: ${nnet_id}"
+	    
+	    numComponents_aann_tr=$(nnet-info $outdir0/aann/aann.ft | grep 'num-components' | awk '{print $2}')
+	    ln -s $PWD/${outdir5}/nnet/${nnet_id} $outdir/${iter}/final.nnet.1.aann.ft
+	    nnet-copy --remove-last-components=${numComponents_aann_tr} ${outdir5}/nnet/${nnet_id} $outdir/${iter}/final.nnet.1
+	    nnet-concat $outdir/${iter}/final.nnet.1 $outdir0/final.nnet.2 $outdir/${iter}/final.nnet
 	    for d in ${decode_subsets}; do
 		for n in ${decode_noises}; do
-		    out_fn=$outdir/${iter}/$d/$n
+		    out_mse=$outdir/${iter}/$d/$n
 		    (			
 			# extract bn 
 			local/ncca/make_bn_feats_ncca.sh --nj ${feats_nj} \
 							 --cmd "$train_cmd" \
 							 --remove-last-components $last_components \
 							 --dnnnet $outdir/${iter}/final.nnet \
-							 $out_fn/bn ${data_fbank_allnoise}/$d/$n $outdir5 $out_fn/bn/log $out_fn/bn/data || exit 1
-			# compute fn loss
-			compute-fn-loss --global=true ${ref_cm} scp:${out_fn}/bn/feats.scp ark,t:- | awk '{print $3}' > $out_fn/fn-loss || exit 1
-		     	# mb level fn loss
-			local/ncca/compute_fn_loss.sh \
-			    --minibatch_size $minibatch_size \
-			    --cmd "$decode_cmd" \
-			    --mlp ${outdir5}/nnet/${nnet_id} \
-			    ${data_fbank_allnoise}/$d/$n ${ref_cm} $outdir5 $out_fn/mb${minibatch_size}	 || exit 1
+							 $out_mse/bn ${data_fbank_allnoise}/$d/$n $outdir5 $out_mse/bn/log $out_mse/bn/data || exit 1
+			
+
+			# MSE
+			local/aann/compute_mse_aann.sh --mlp ${outdir5}/nnet/${nnet_id} \
+						       --cmd "$decode_cmd" \
+			                               --aann_mlp $outdir0/aann/aann.nnet \
+						       ${data_fbank_allnoise}/$d/$n $outdir5 $out_mse || exit 1
+				    
 		    ) & sleep 2
 		done
 	    done
@@ -320,10 +359,11 @@ if [ $stage -le 7 ]; then
 	    if [ ! -d $outdir/000/$d/$n ]; then
 		mkdir -p $outdir/000/$d/$n || exit 1
 		mkdir -p ${outdir5}/frm_decode/000/$d/$n || exit 1
-		cp -r $outdir3/decode_${d}_${n}/* $outdir/000/$d/$n || exit 1
-		ln -s $PWD/$outdir3/final.nnet.1 $outdir/000/final.nnet.1 || exit 1
-		ln -s $PWD/$outdir3/final.nnet $outdir/000/final.nnet || exit 1		
-		cp -r $outdir3/frm_decode/$d/$n/* ${outdir5}/frm_decode/000/$d/$n || exit 1
+		cp -r $outdir3/decode_${d}_${n}/* $outdir/000/$d/$n || exit 1		
+		[ ! -L $outdir/000/final.nnet.1.aann.ft ] && ln -s $PWD/$outdir3/final.nnet.1.aann.ft $outdir/000/final.nnet.1.aann.ft 
+		[ ! -L $outdir/000/final.nnet.1 ] && ln -s $PWD/$outdir3/final.nnet.1 $outdir/000/final.nnet.1
+		[ ! -L $outdir/000/final.nnet ] && ln -s $PWD/$outdir3/final.nnet $outdir/000/final.nnet 
+		cp -r $outdir3/frm_decode/$d/$n/* ${outdir5}/frm_decode/000/$d/$n || exit 1 
 	    fi
 	done
     done
@@ -338,9 +378,9 @@ if [ $stage -le 7 ]; then
 	nnet_id=$(basename ${outdir5}/nnet/*iter${iter}*)
 	echo "dnn decoding: ${nnet_id}"
 
-
-	ln -s $PWD/${outdir5}/nnet/${nnet_id} $outdir/${iter}/final.nnet.1
-	nnet-concat ${outdir5}/nnet/${nnet_id} $outdir0/final.nnet.2 $outdir/${iter}/final.nnet
+	ln -s $PWD/${outdir5}/nnet/${nnet_id} $outdir/${iter}/final.nnet.1.aann.ft
+	nnet-copy --remove-last-components=3 ${outdir5}/nnet/${nnet_id} $outdir/${iter}/final.nnet.1
+	nnet-concat $outdir/${iter}/final.nnet.1 $outdir0/final.nnet.2 $outdir/${iter}/final.nnet
 	
 	# decode in parallel
 	for d in ${decode_subsets}; do
@@ -361,6 +401,48 @@ if [ $stage -le 7 ]; then
     done
 fi
 outdir7=$outdir
+
+
+echo ============================================================================
+echo "       Post-Adaptation: FN deocde (FN) if aann-ncca                       "
+echo ============================================================================
+outdir=${expid}/postAdapt-dnn/fn_decode # the only output
+if [ $stage -le 8 ]; then
+
+    if [ ${fn_decode} == "yes" && ${objective_function} == "aann-ncca" ]; then
+	# initial results (copy from preAdapt)
+	for d in ${decode_subsets}; do
+	    for n in ${decode_noises}; do
+		if [ ! -d $outdir/000/$d/$n ]; then
+		    mkdir -p ${outdir}/000/$d/$n || exit 1
+		    cp -r $outdir3/fn_decode/$d/$n/* ${outdir}/000/$d/$n || exit 1 
+		fi
+	    done
+	done
+	
+	# iterate over selected epochs
+	for iter in `seq -f"%03g" 1 ${iter_step} ${keep_lr_iters}` ;do
+	    
+	    # create the adapted dnn
+	    nnet_id=$(basename ${outdir5}/nnet/*iter${iter}*)
+	    echo "fn decoding: ${nnet_id}"
+	    
+	    # decode in parallel
+	    for d in ${decode_subsets}; do
+		for n in ${decode_noises}; do
+		    (
+			local/aann/compute_fn_loss_aann-ncca.sh --mlp ${outdir5}/nnet/${nnet_id} \
+							    --cmd "$decode_cmd" \
+							    --minibatch_size ${minibatch_size} \
+		     					    --aann_mlp $outdir0/aann/aann.nnet \
+							    ${data_fbank_allnoise}/$d/$n $outdir5 $outdir/${iter}/$d/$n || exit 1
+		    ) & sleep 10
+		done
+	    done
+	done
+    fi
+fi
+outdir8=$outdir
 
 
 echo ============================================================================

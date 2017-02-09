@@ -7,33 +7,34 @@
 
 # CONFIG
 stage=0
-begin=
+begin=yes
 
 # dnn
-dnnid="dnn-512"  # mono_dnn-256 as a dnnid (used only for output dir)
-first_components=
+dnnid="mono_dnn-256"  # mono_dnn-256 as a dnnid (used only for output dir)
+first_components=2
 iter= # option
 noise=babble-10
-adapt_scp_opt= # options for other training scp
+adapt_scp_opt='_no_rdn' # options for other training scp
 minibatch_size=19306 # num of frames in one update and back propagation
 randomizer_size=32768 # num of frames for one epoch training
-lr=0.005
-lr_adapt=yes
-keep_lr_iters=100
-max_iters=200
+lr=0.001
+lr_adapt=no
+keep_lr_iters=250
+max_iters=400
 frm_acc_decode="yes"
 fn_decode="yes"
 wer_decode="no"
-id=
-iter_step=1
-decode_subsets="dev test"
-fn_mb_opt="no"
+id="_no_rdn"
+iter_step=10
+decode_subsets="test"
+decode_noises="$noise CLEAN"
+fn_mb_opt="yes" # err used for lr adaptation 
 gmmdir="exp/mono"
 
 . utils/parse_options.sh || exit 1
 
-decode_noises="$noise CLEAN"
-adaptid="_minibatch${minibatch_size}${id}"
+#adaptid="_minibatch${minibatch_size}${id}"
+adaptid="${id}"
 outdir=exp/${dnnid}_${noise}${adaptid}/${first_components}
 mkdir -p $outdir
 

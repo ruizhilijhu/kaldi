@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script get results and stats (fn fn_mb frm)
+# This script get results and stats (fn-mb(aaann_ncca) frm mse)
 # note: fn and fn_mb come together as fn_decode option
 # assumption: every layer should have same iters for each results
 
@@ -12,7 +12,7 @@ outdir=RESULTS/mono_dnn-256_babble-10_mb_lr_adapt/2
 
 # options
 frmDecode="yes"
-fnDecode="no"
+fnDecode="yes"
 mseDecode="yes"
 
 noise="babble-10 CLEAN"
@@ -75,16 +75,10 @@ if [ $fnDecode == "yes" ]; then
     for d in $subset; do
 	for n in $noise; do
 	    if [ -d $fnDecodeDir/000/$d/$n ]; then
-		# fn computed over all data
-		cat $fnDecodeDir/*/$d/$n/fn-loss > $fnDecodeOutDir/fn_${d}_${n} || exit 1
-		numLines=$(wc $fnDecodeOutDir/fn_${d}_${n} | awk '{print $1}')
+		cat $fnDecodeDir/*/$d/$n/fn_mb > $fnDecodeOutDir/fn-mb_${d}_${n} || exit 1
+		numLines=$(wc $fnDecodeOutDir/fn-mb_${d}_${n} | awk '{print $1}')
 		numIters=$(wc $fnDecodeOutDir/iter_list | awk '{print $1}')
-		[ $numLines != $numIters ] && echo "FN Iterations mismatch $d $n!" && exit 1
-		# fn computed over each mb and take average
-		cat $fnDecodeDir/*/$d/$n/mb${minibatch_size}/fn-loss > $fnDecodeOutDir/fn-mb${minibatch_size}_${d}_${n} || exit 1
-		numLines=$(wc $fnDecodeOutDir/fn-mb${minibatch_size}_${d}_${n} | awk '{print $1}')
-		numIters=$(wc $fnDecodeOutDir/iter_list | awk '{print $1}')
-		[ $numLines != $numIters ] && echo "FN-MB${minibatch_size} Iterations mismatch $d $n!" && exit 1
+		[ $numLines != $numIters ] && echo "FN: Iterations mismatch $d $n!" && exit 1
 	    fi
 	done
     done    

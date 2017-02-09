@@ -10,8 +10,10 @@
 cmd=run.pl
 nnet_forward_opts=
 use_gpu=no
-mlp=   # truncated mlp
-minibatch_size=603
+mlp=
+aann_mlp=
+minibatch_size=
+randomizer_seed=777
 randomizer_size=32768
 # End configuration section.
 
@@ -22,23 +24,25 @@ if [ -f path.sh ]; then . ./path.sh; fi
 
 set -euo pipefail
 echo $#
-if [ $# != 4 ]; then
-   echo "usage: $0 [options] <data> <ref_cm> <nnet-dir> <log-dir> ";
-   echo "Compute minibatch-based fn loss for a given data set on a dnn " 
+if [ $# != 3 ]; then
+   echo "usage: $0 [options] <data> <nnet-dir> <log-dir> ";
+   echo "Compute fn for a given data set on a dnn and aann for aann-ncca"
+   echo "dnn is the truned one."
    echo "options: "
    echo "  --cmd 'queue.pl <queue opts>'   # how to run jobs."
    echo "  --use-gpu (no|yes|optional)     # forwarding on GPU"
    exit 1;
 fi
 
+if [ -f path.sh ]; then . path.sh; fi
+
 data=$1
-ref_cm=$2
-nndir=$3
-logdir=$4 # output
+nndir=$2
+logdir=$3 # output
 
 ######## CONFIGURATION
 
-required="$data/feats.scp $mlp $nndir/final.feature_transform ${ref_cm}"
+required="$data/feats.scp $mlp $nndir/final.feature_transform $aann_mlp"
 for f in $required; do
   [ ! -f $f ] && echo "$0: Missing $f" && exit 1;
 done
@@ -47,8 +51,10 @@ mkdir -p $logdir
 
 # Copy feature transform with MLP:
 cp $mlp $logdir/
+cp $aann_mlp $logdir/
 cp $nndir/final.feature_transform $logdir/
 nnet-info $mlp >$logdir/mlp-info
+nnet-info $aann_mlp > $logdir/aann-info
 nnet-info $nndir/final.feature_transform >$logdir/feature_transform-info
 
 
@@ -71,27 +77,25 @@ feats="ark,s,cs:copy-feats scp:$data/feats.scp ark:- |"
 [ ! -z "$delta_opts" ] && feats="$feats add-deltas $delta_opts ark:- ark:- |"
 
 
+
 # PREPARE LABEL PIPELINE
 o_feats=`echo $feats | sed 's@ark:copy-feats@ark,o:copy-feats@g'`
-labels="$o_feats feat-to-post ark:- ark:- |"
-
+labels="$o_feats nnet-forward $nndir/final.feature_transform ark:- ark:- | feat-to-post ark:- ark:- |"
 
 # Run the forward pass,
-$cmd $logdir/compute_fn_loss.log \
+$cmd $logdir/compute_fn_loss_aann-ncca.log \
      nnet-train-frmshuff-ncca $nnet_forward_opts \
-     --objective-function=ncca \
-     --ncca-ref-mat=$ref_cm \
+     --objective-function=aann-ncca \
+     --minibatch-size=${minibatch_size} \
+     --randomizer-seed=${randomizer_seed} \
+     --randomizer-size=${randomizer_size} \
+     --aann-mlp-filename=$aann_mlp \
      --use-gpu=$use_gpu \
      --cross-validate=true \
-     --verbose=1 \
      --randomize=false \
-     --minibatch-size=$minibatch_size \
-     --randomizer-seed=777 \
-     --randomizer-size=$randomizer_size \
-     --feature-transform=$D/final.feature_transform \
+     --feature-transform=$nndir/final.feature_transform \
      "$feats" "$labels" $mlp || exit 1;
 
-
-info=$(grep AvgLoss $logdir/compute_fn_loss.log | awk '{print $4}')
-echo $info > $logdir/fn-loss
-echo "Succeeded compute fn loss for $data --> $info (Ncca) minibatch-${minibatch_size}"
+info=$(grep "AvgLoss:" $logdir/compute_fn_loss_aann-ncca.log | tail -n 1 | awk '{ print $4; }')
+echo $info > $logdir/fn_mb
+echo "Succeeded compute fn for $data --> $info"

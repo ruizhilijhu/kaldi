@@ -17,7 +17,8 @@ BINFILES = nnet-train-frmshuff \
         nnet-kl-hmm-acc nnet-kl-hmm-mat-to-component \
 	feat-to-post paste-post train-transitions \
 	cuda-gpu-available nnet-set-learnrate \
-	nnet-train-frmshuff-aann nnet-train-frmshuff-ncca 
+	nnet-train-frmshuff-ncca 
+
 
 
 OBJFILES =

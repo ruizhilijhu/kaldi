@@ -13,7 +13,7 @@
 feats_nj=10
 train_nj=10
 decode_nj=20
-stage=1
+stage=0
 data_fbank_clean=data-fbank13-clean
 data_fbank_allnoise=data-fbank13-allnoise
 dropout_schedule=0.2,0.2,0.2,0.2,0.2,0.0

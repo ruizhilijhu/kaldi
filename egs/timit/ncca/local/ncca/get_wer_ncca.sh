@@ -23,12 +23,12 @@ echo "$0 $@"  # Print the command line for logging
 exp_dir=exp/${dnnid}_${noise}${adaptid}/${first_components}/postAdapt-dnn
 echo "experiment dir (DNN Dir): $exp_dir"
 
-outdir=$exp_dir/dnn_decode/${iter}
+outdir=$exp_dir/nnets_decode/${iter}
 [ ! -d $outdir ] && echo "Missing decoding mlp dir! $outdir" && exit 1
 
 mlp=$outdir/final.nnet
 
-steps/nnet/decode_ncca.sh --nj $decode_nj --cmd "$decode_cmd" --acwt 0.2 \
+local/ncca/decode_ncca.sh --nj $decode_nj --cmd "$decode_cmd" --acwt 0.2 \
 		    	  --srcdir ${exp_dir} \
 		    	  --nnet $mlp \
     		    	  $gmmdir/graph $data_fbank_allnoise/$subset/$noise $outdir/$subset/$noise || exit 1; 
