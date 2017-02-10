@@ -43,7 +43,7 @@ prior_counts_tot=15
 prior_mean="0.7,0.2,0.1"
 num_gauss=
 num_leaves=
-retrain_src_mdl=true
+retrain_src_mdl=false
 
 cleanup=true
 # End configuration section.  
@@ -88,7 +88,7 @@ if [ $# -lt 6 ] || [ $# -gt 7 ]; then
   echo "  --cmd '$cmd'                 # command to submit jobs with (e.g. run.pl, queue.pl)"
   echo "  --nj <nj>                    # number of parallel jobs"
   echo "  --oov-symbol <unk_symbol>    # (required option) oov symbol, like <UNK>."
-  echo "  --g2p-pron-candidates        # A lexicon file containing g2p generated pronunciations, for words in acoustic training "
+  echo "  --lexicon-g2p                # A lexicon file containing g2p generated pronunciations, for words in acoustic training "
   echo "                               # data / target vocabulary. It's optional."
   echo "  --min-prob <float>           # The cut-off parameter used to select pronunciation candidates from phonetic"
   echo "                               # decoding. We remove pronunciations with probabilities less than this value"
@@ -168,7 +168,8 @@ if [ $stage -le 0 ]; then
     # create an empty list of g2p generated prons, if it's not given.
     touch $dir/lexicon_g2p.txt
   else
-    cp $lexicon_g2p $dir/lexicon_g2p.txt 2>/dev/null
+    cat $lexicon_g2p | awk '{if (NF<2) {print "There is an empty pronunciation in lexicon_g2p.txt. Exit." \
+      > "/dev/stderr"; exit 1} print $0}' - > $dir/lexicon_g2p.txt || exit 1;
   fi
 fi
 
@@ -250,7 +251,7 @@ if [ $stage -le 2 ]; then
     cat - $dir/non_scored_entries | \
     sort | uniq > $dir/dict_expanded_train/lexicon.txt || exit 1;
   
-  utils/prepare_lang.sh $dir/dict_expanded_train "$oov_symbol" \
+  utils/prepare_lang.sh --phone-symbol-table $ref_lang/phones.txt $dir/dict_expanded_train "$oov_symbol" \
     $dir/lang_expanded_train_tmp $dir/lang_expanded_train || exit 1;
 fi
 
