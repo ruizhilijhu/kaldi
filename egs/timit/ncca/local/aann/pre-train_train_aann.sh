@@ -16,6 +16,9 @@ hid_dim=0
 splice=0
 splice_step=1
 
+cmvn_opts=
+pretrain_opts=
+train_opts=
 . ./cmd.sh 
 [ -f path.sh ] && . ./path.sh
 . utils/parse_options.sh || exit 1
@@ -49,9 +52,11 @@ if [ $stage -le 0 ]; then
     (tail --pid=$$ -F $outdir/log/pretrain_dbn.log 2>/dev/null)&
     $cuda_cmd $outdir/log/pretrain_dbn.log \
 	      local/aann/pretrain_dbn.sh \
+	      ${pretrain_opts} \
 	      --splice $splice \
 	      --splice-step $splice_step \
 	      --hid-dim $hiddenDim \
+	      ${cmvn_opts:+ --cmvn_opts "${cmvn_opts}"} \
 	      $data $outdir || exit 1;
 fi
 outdir0=$outdir
@@ -64,7 +69,7 @@ if [ $stage -le 1 ]; then
 
     
     # split train into 90% trn and 10% cv
-    utils/subset_data_dir_tr_cv.sh $data ${data}_tr90 ${data}_cv10 || exit 1
+    utils/subset_data_dir_tr_cv.sh --cv-spk-percent 10 $data ${data}_tr90 ${data}_cv10 || exit 1
     
     mkdir -p $outdir
     numHiddenLayers=`echo $hiddenDim | awk -F ':' '{print NF}'`
@@ -72,15 +77,17 @@ if [ $stage -le 1 ]; then
     (tail --pid=$$ -F $outdir/log/train_aann.log 2>/dev/null)&
     $cuda_cmd $outdir/log/train_aann.log \
 	      local/aann/train_aann.sh \
+	      ${train_opts} \
 	      --splice $splice \
 	      --splice-step $splice_step \
-	      --train-opts "--max-iters 30" \
+	      --train-opts "--max-iters 50" \
 	      --proto-opts "--no-softmax --activation-type=<Sigmoid>" \
 	      --hid-layers 0 \
 	      --dbn $dbn \
 	      --learn-rate $lr \
 	      --copy-feats "false" --skip-cuda-check "true" \
 	      --hid-dim $hid_dim \
+	      ${cmvn_opts:+ --cmvn_opts "${cmvn_opts}"} \
 	      ${data}_tr90 ${data}_cv10 $outdir || exit 1;
 fi
 outdir1=$outdir

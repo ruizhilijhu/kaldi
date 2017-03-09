@@ -30,6 +30,7 @@ train_tool_opts=
 train_tool="nnet-train-frmshuff-ncca --objective-function=ncca"
                    # optionally change the training tool
 frame_weights=     # per-frame weights for gradient weighting
+scheduler_opts=    # options, passed to the training scheduler,
 
 # OTHER
 seed=777    # seed value used for training data shuffling and initialization
@@ -196,6 +197,7 @@ echo "# NN-INITIALIZATION"
 echo
 echo "# RUNNING THE NN-TRAINING SCHEDULER"
 local/ncca/train_scheduler${adapt_scp_opt}.sh \
+  ${scheduler_opts} \
   --feature-transform $feature_transform \
   --learn-rate $learn_rate \
   ${train_opts} \

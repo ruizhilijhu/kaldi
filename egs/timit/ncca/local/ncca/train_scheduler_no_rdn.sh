@@ -102,8 +102,8 @@ for iter in $(seq -w $max_iters); do
   [ -e $dir/.done_iter$iter ] && echo -n "skipping... " && ls $mlp_next* && continue
 
   # set dropout-rate from the schedule,
-  if [ -n ${dropout_array[$((10#${iter#0}-1))]-''} ]; then
-    dropout_rate=${dropout_array[$((${iter#0}-1))]}
+  if [ -n ${dropout_array[$((10#${iter#00}-1))]-''} ]; then
+    dropout_rate=${dropout_array[$((10#${iter#00}-1))]}
     nnet-copy --dropout-rate=$dropout_rate $mlp_best ${mlp_best}.dropout_rate${dropout_rate}
     mlp_best=${mlp_best}.dropout_rate${dropout_rate}
   fi

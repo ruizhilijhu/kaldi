@@ -40,6 +40,7 @@ lr_adapt=no
 keep_lr_iters=250
 max_iters=400
 objective_function="aann"  # aann-ncca 
+numLayersFreeze=
 
 # decode
 iter_step=20
@@ -60,6 +61,9 @@ aannDir=
 # output
 expid=
 
+# coactivation mat reference
+ref_cm=
+
 . ./cmd.sh 
 [ -f path.sh ] && . ./path.sh
 . utils/parse_options.sh || exit 1
@@ -76,11 +80,14 @@ if [ ! -z $mlp ]; then
 else
     numComponents_dnn=`nnet-info ${dnnDir}/final.nnet | grep num-components | awk '{print $2}'`
 fi
-numLayersFreeze=$((${first_components}-3)) 
+[ -z $numLayersFreeze ] && numLayersFreeze=$((${first_components}-3)) 
 last_components=$((${numComponents_dnn}-${first_components}))
 echo "number of Components in DNN: $numComponents_dnn"
 echo "number of first components: $first_components"
 echo "number of last components: $last_components"
+
+# aann-cm
+[ $objective_function == 'aann-cm' -a -z $ref_cm ] && echo "Missing referece coactivation mat!" && exit 1
 
 # decode
 [ -z $decode_epochs ] && decode_epochs=`seq -f"%03g" 1 ${iter_step} ${keep_lr_iters}`
@@ -113,10 +120,10 @@ if [ $stage -le 0 ]; then
     fi
     
     # freeze adapted layers
-    if [ $numLayersFreeze -ge 0 ]; then
+    if [ $numLayersFreeze -ge 1 ]; then
     	if [ -L $outdir/final.nnet ]; then
 
-	    orig_mlp=$(readlink $outdir/final.nnet)
+	    orig_mlp=$(readlink -f $outdir/final.nnet)
 	    unlink $outdir/final.nnet
 	    cp $orig_mlp $outdir/final.nnet.tmp || exit 1
 	else
@@ -179,17 +186,17 @@ outdir=${expid}/preAdapt-dnn # the only output
 if [ $stage -le 2 ]; then
     for d in ${decode_subsets}; do
 	for n in ${decode_noises}; do
-	    echo "Pre-Adaptation Decoding: WER"
-	    out_wer=$outdir/wer_decode/$d/$n
-	    mkdir -p $out_wer
-	    ( 
-	    	local/ncca/decode_ncca.sh --nj $decode_nj \
-	    				  --cmd "$decode_cmd" \
-	    				  --acwt 0.2 \
-	    				  --srcdir $outdir \
-	    				  --nnet $outdir/final.nnet \
-	    				  $gmmdir/graph $data_fbank_allnoise/$d/$n $out_wer || exit 1	    
-	    ) & sleep 2
+	    # echo "Pre-Adaptation Decoding: WER"
+	    # out_wer=$outdir/wer_decode/$d/$n
+	    # mkdir -p $out_wer
+	    # ( 
+	    # 	local/ncca/decode_ncca.sh --nj $decode_nj \
+	    # 				  --cmd "$decode_cmd" \
+	    # 				  --acwt 0.2 \
+	    # 				  --srcdir $outdir \
+	    # 				  --nnet $outdir/final.nnet \
+	    # 				  $gmmdir/graph $data_fbank_allnoise/$d/$n $out_wer || exit 1	    
+	    # ) & sleep 2
 
 	    echo "Pre-Adaptation Decoding: FRM"
 	    out_frm=$outdir/frm_decode/$d/$n
@@ -199,7 +206,7 @@ if [ $stage -le 2 ]; then
 	    				      --cmd "$decode_cmd" \
 	    				      $data_fbank_allnoise/$d/$n ${gmmdir}_ali/data-allnoise/$d/$n $outdir $out_frm || exit 1
 	    ) & sleep 2
-
+	    
 	    echo "Pre-Adaptation Decoding: MSE"
 	    out_mse=$outdir/mse_decode/$d/$n
 	    mkdir -p $out_mse
@@ -208,7 +215,7 @@ if [ $stage -le 2 ]; then
 	    				   --aann_mlp $outdir/aann/aann.nnet \
 	    				   $data_fbank_allnoise/$d/$n $outdir $out_mse || exit 1
 	    
-	    if [ ${objective_function} == "aann-ncca" ]; then
+	    if [ ${objective_function} == "aann-ncca" -o ${objective_function} == "aann-cm" ]; then
 		echo "Pre-Adaptation Decoding: FN"
 		out_fn=$outdir/fn_decode/$d/$n		
 		mkdir -p $out_fn			    
@@ -216,8 +223,10 @@ if [ $stage -le 2 ]; then
 							--mlp $outdir/final.nnet.1.aann.ft \
 							--minibatch_size ${minibatch_size} \
 							--aann_mlp $outdir/aann/aann.nnet \
+							--objective-function $objective_function \
+							${ref_cm:+ --ref_cm ${ref_cm}} \
 							$data_fbank_allnoise/$d/$n $outdir $out_fn || exit 1
-	    fi
+	    fi	    
 	done
     done
 fi
@@ -237,7 +246,7 @@ if [ $stage -le 3 ]; then
 	    echo "Objective Function: aann"
 	    echo "ERR is calculated in frame base (mse)"
 	    err=$(cat $outdir2/mse_decode/test/$noise/mse_frm)	    
-	elif [ $objective_function == "aann-ncca" ]; then
+	elif [ $objective_function == "aann-ncca" -o $objective_function == "aann-cm" ]; then
 	    echo "Objective Function: aann-ncca"
 	    echo "ERR is calculated in minibatch base (fn)"
 	    err=$(cat $outdir2/fn_decode/test/$noise/fn_mb)
@@ -255,7 +264,10 @@ if [ $stage -le 3 ]; then
     train_tool_opts="--minibatch-size=${minibatch_size} --randomizer-seed=${randomizer_seed} --randomizer-size=${randomizer_size}"
     train_options="--keep-lr-iters ${keep_lr_iters}"
     train_options="${train_options} --max-iters $max_iters"
+    
     train_tool="nnet-train-frmshuff-ncca --objective-function=${objective_function} --aann-mlp-filename=$outdir0/aann/aann.nnet"
+    [ $objective_function == "aann-cm" ] && train_tool="${train_tool} --ncca-ref-mat=${ref_cm}"
+    
     
     (tail --pid=$$ -F $outdir/log/train_nnet.log 2>/dev/null)& # forward log
     $cuda_cmd $outdir/log/train_ncca.log \
@@ -302,8 +314,9 @@ if [ $stage -le 4 ]; then
     # organize nnets over epoch in nnets_decode
     [ -d $outdir/nnets_decode ] && rm -r $outdir/nnets_decode
     # # initial epoch 000
-    for f in final.nnet.1.aann.ft final.nnet.1 final.nnet; do			
-	[ ! -L $outdir/frm_decode/000/${f} ] && ln -s $PWD/$outdir0/${f} $outdir/frm_decode/000/${f} || exit 1
+    [ ! -d ${outdir}/nnets_decode/000 ] && mkdir -p ${outdir}/nnets_decode/000
+    for f in final.nnet.1.aann.ft final.nnet.1 final.nnet; do
+	ln -s $PWD/$outdir0/${f} $outdir/nnets_decode/000/${f} || exit 1
     done
     # # iterate over epochs
     for iter in `seq -f"%03g" 1 1 ${keep_lr_iters}` ;do
@@ -365,17 +378,21 @@ if [ $stage -le 5 ]; then
 		fi
 
 		
-		if [ $fn_decode == "yes" -a $objective_function == 'aann-ncca' ]; then	    
-		    echo "Post-Adaptation Decoding: FN -- iter${iter}"
-		    out_fn=$outdir/fn_decode/$iter/$d/$n
-		    mkdir -p $out_fn
-		    (
-			local/aann/compute_fn_loss_aann-ncca.sh --cmd "$decode_cmd" \
-								--mlp $outdir/nnets_decode/$iter/final.nnet.1.aann.ft \
-								--minibatch_size ${minibatch_size} \
-								--aann_mlp $outdir/aann/aann.nnet \
-								$data_fbank_allnoise/$d/$n $outdir $out_fn || exit 1		       
-		    ) & sleep 2
+		if [ $fn_decode == "yes" ]; then
+		    if [ $objective_function == 'aann-cm' -o $objective_function == 'aann-ncca' ];then
+			echo "Post-Adaptation Decoding: FN -- iter${iter}"
+			out_fn=$outdir/fn_decode/$iter/$d/$n
+			mkdir -p $out_fn
+			(
+			    local/aann/compute_fn_loss_aann-ncca.sh --cmd "$decode_cmd" \
+								    --mlp $outdir/nnets_decode/$iter/final.nnet.1.aann.ft \
+								    --minibatch_size ${minibatch_size} \
+								    --aann_mlp $outdir/aann/aann.nnet \
+								    --objective-function $objective_function \
+								    ${ref_cm:+ --ref_cm ${ref_cm}} \
+								    $data_fbank_allnoise/$d/$n $outdir $out_fn || exit 1		       
+			) & sleep 2
+		    fi
 		fi
 
 		
@@ -387,6 +404,7 @@ if [ $stage -le 5 ]; then
 			local/ncca/make_bn_feats_ncca.sh --nj ${feats_nj} \
 							 --cmd "$train_cmd" \
 							 --remove-last-components $last_components \
+							 --dnnnet $outdir/nnets_decode/$iter/final.nnet \
 							 $out_mse/bn ${data_fbank_allnoise}/$d/$n $outdir $out_mse/bn/log $out_mse/bn/data || exit 1
 			local/aann/compute_mse_aann.sh --mlp $outdir/nnets_decode/$iter/final.nnet.1.aann.ft \
 						       --cmd "$decode_cmd" \

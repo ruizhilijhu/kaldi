@@ -17,28 +17,29 @@ adapt_scp_opt="_no_rdn" # options for other training scp
 minibatch_size=19306 # num of frames in one update and back propagation
 randomizer_size=32768 # num of frames for one epoch training
 lr=0.001
-lr_adapt=yes
+lr_adapt=no
 keep_lr_iters=100
 max_iters=400
 objective_function="aann" # "aann-ncca"
+numLayersFreeze=
+numLayersFreezeStart=
 adapt_options=
+l1_penalty=0
+l2_penalty=0
+dropout_rate=
 
 # decode 
-iter_step=2
 decode_subsets="test"
 decode_noises="$noise CLEAN"
-decode_epochs=
-frm_decode="yes"
-mse_decode="yes"
-wer_decode="no"
-fn_decode="no"
 
 # monophone model
 gmmdir="exp/mono"
 
 # aann # assumption: bn layer is 24
-aann_hl=3
-aann_hu=512
+aannid= 
+
+# coactivation matrix
+ref_cm_opt= # post or pre
 
 # out
 outdir_suffix=  #"_ncca" for parameter analysis 
@@ -48,14 +49,21 @@ set -e # Exit immediately if a command exits with a non-zero status.
 echo "$0 $@"  # Print the command line for logging
 
 # aann
-aannid=${aann_hl}hl_${aann_hu}hu${aann_suffix}
-aannDir=exp/${dnnid}_aann/${first_components}_${aann_hl}hl_${aann_hu}hu/pretrain-aann_aann
+aannDir=exp/${dnnid}_aann/${aannid}/pretrain-aann_aann
 
 # outdir 
-adaptid=${adapt_scp_opt}_aann-${aann_hl}hl-${aann_hu}hu${outdir_suffix}
+adaptid=${adapt_scp_opt}_aann-${aannid}${outdir_suffix}
 outdir=exp/${dnnid}_${noise}${adaptid}
 expid=$outdir/$first_components
+[ ! -d $expid ] && mkdir -p $expid
 
+# coactivtion matrix
+if [ $objective_function == 'aann-cm' ];then
+    [ ! -z $ref_cm_opt ] && ref_cm=exp/${dnnid}_aann_cm/${aannid}/${ref_cm_opt}-aann/${first_components}.mat
+elif [ $objective_function == 'ncca' ];then
+    ref_cm=exp/${dnnid}-bn_cm/${first_components}.mat
+fi
+    
 if [ $begin == 'yes' ];then
     dnnDir=exp/${dnnid}
 elif [ $begin == 'no' ];then
@@ -66,7 +74,19 @@ elif [ $begin == 'no' ];then
     [ -z $iter ] && echo "misiing iter number! " && exit 1
 fi
 
-bash local/aann/adapt_scheduler_aann.sh $adapt_options \
+if [ ! -z $dropout_rate ]; then
+    numDpIter=$((${keep_lr_iters}-5))
+    dropout_schedule=
+    for ((c=1;c<=$numDpIter;c++));do
+	dropout_schedule="$dropout_rate,$dropout_schedule"
+    done
+    dropout_schedule="${dropout_schedule}0.0"
+    echo $dropout_schedule
+fi
+
+
+
+bash local/ncca/adapt_scheduler.sh $adapt_options \
      ${stage:+ --stage "$stage"} \
      ${dnnid:+ --dnnid "$dnnid"} \
      ${first_components:+ --first_components "$first_components"} \
@@ -81,15 +101,15 @@ bash local/aann/adapt_scheduler_aann.sh $adapt_options \
      ${keep_lr_iters:+ --keep_lr_iters "$keep_lr_iters"} \
      ${max_iters:+ --max_iters "$max_iters"} \
      ${objective_function:+ --objective_function "${objective_function}"} \
-     ${iter_step:+ --iter_step "$iter_step"} \
      ${decode_subsets:+ --decode_subsets "$decode_subsets"} \
      ${decode_noises:+ --decode_noises "$decode_noises"} \
-     ${decode_epochs:+ --decode_epochs "$decode_epochs"} \
-     ${frm_decode:+ --frm_decode "$frm_decode"} \
-     ${mse_decode:+ --mse_decode "$mse_decode"} \
-     ${wer_decode:+ --wer_decode "$wer_decode"} \
-     ${fn_decode:+ --fn_decode "$fn_decode"} \
      ${gmmdir:+ --gmmdir "$gmmdir"} \
+     ${ref_cm:+ --ref_cm "$ref_cm"} \
+     ${numLayersFreeze:+ --numLayersFreeze "$numLayersFreeze"} \
+     ${numLayersFreezeStart:+ --numLayersFreezeStart "$numLayersFreezeStart"} \
+     ${dropout_rate:+ --dropout_schedule "$dropout_schedule"} \
+     --l1-penalty ${l1_penalty} \
+     --l2-penalty ${l2_penalty} \
      --aannDir $aannDir \
-     --expid $expid \ 
-2>&1 | tee ${outdir}/step4_adapt_scheduler.log    
+     --expid $expid \
+     2>&1 | tee ${expid}/step4_adapt_scheduler.log    

@@ -21,7 +21,7 @@ if [ -f path.sh ]; then . ./path.sh; fi
 . parse_options.sh || exit 1;
 
 set -euo pipefail
-echo $#
+
 if [ $# != 4 ]; then
    echo "usage: $0 [options] <data> <ref_cm> <nnet-dir> <log-dir> ";
    echo "Compute minibatch-based fn loss for a given data set on a dnn " 
@@ -93,5 +93,5 @@ $cmd $logdir/compute_fn_loss.log \
 
 
 info=$(grep AvgLoss $logdir/compute_fn_loss.log | awk '{print $4}')
-echo $info > $logdir/fn-loss
+echo $info > $logdir/fn
 echo "Succeeded compute fn loss for $data --> $info (Ncca) minibatch-${minibatch_size}"

@@ -40,6 +40,7 @@ if [ $stage -le 0 ]; then
 fi
 outdir0=$outdir
 
+#exit 0 # stop here to change wav.scp if training on noise condition is needed.
 
 
 echo ============================================================================

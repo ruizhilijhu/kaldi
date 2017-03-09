@@ -23,6 +23,7 @@
 #include "nnet/nnet-loss-ncca.h" // RL: N
 #include "nnet/nnet-loss-aann.h" // RL: N
 #include "nnet/nnet-loss-aann-ncca.h" // RL: N
+#include "nnet/nnet-loss-aann-cm.h" // RL: N
 #include "nnet/nnet-randomizer.h"
 #include "base/kaldi-common.h"
 #include "util/common-utils.h"
@@ -43,6 +44,7 @@ int main(int argc, char *argv[]) {
       "New Update: Add ncca as a loss function \n"
       "New Update: Add aann as a loss function \n"
       "New Update: Add aann-ncca as a loss function \n"
+      "New Update: Add aann-cm as a loss function \n"
       "%%%%%%%%%\n"
       "Usage:  nnet-train-frmshuff-ncca [options] <feature-rspecifier> <targets-rspecifier> <model-in> [<model-out>]\n"
       "e.g.: nnet-train-frmshuff-ncca scp:feats.scp ark:posterior.ark nnet.init nnet.iter1\n";
@@ -72,7 +74,7 @@ int main(int argc, char *argv[]) {
     // RL: M
     std::string objective_function = "ncca";
     po.Register("objective-function", &objective_function,
-	"Objective function : aann|ncca|xent|mse|multitask|aann-ncca");
+	"Objective function : aann|ncca|xent|mse|multitask|aann-ncca|aann-cm");
     //
     
     int32 length_tolerance = 5;
@@ -165,9 +167,10 @@ int main(int argc, char *argv[]) {
     Aann aann;
     Ncca ncca;
     AannNcca aannncca;
+    AannCm aanncm;
     CuMatrix<BaseFloat> ref_cm_gpu;
     Nnet aann_mlp;
-    if (objective_function == "ncca") {
+    if (objective_function == "ncca" || objective_function == "aann-cm") {
       // check if reference mat is missing
       if ( ncca_ref_mat == "") {
 	KALDI_ERR << "Missing NCCA reference matrix.";
@@ -175,7 +178,7 @@ int main(int argc, char *argv[]) {
       // read ref matrix
       ReadKaldiObject(ncca_ref_mat, &ref_cm_gpu);
     }
-    if (objective_function == "aann" || objective_function == "aann-ncca") {
+    if (objective_function == "aann" || objective_function == "aann-ncca" || objective_function == "aann-cm") {
       // check if mlp is missing
       if ( aann_mlp_filename == "") {
 	KALDI_ERR << "Missing Autoencoder mlp for adaptation."; 
@@ -378,6 +381,9 @@ int main(int argc, char *argv[]) {
 	} else if (objective_function == "aann-ncca") {
 	  // gradients re-scaled by weights in Eval,
 	  aannncca.Eval(frm_weights, nnet_out, aann_mlp, &obj_diff);
+	} else if (objective_function == "aann-cm") {
+	  // gradients re-scaled by weights in Eval,
+	  aanncm.Eval(frm_weights, nnet_out, aann_mlp, ref_cm_gpu, &obj_diff);
 	  //
         } else {
           KALDI_ERR << "Unknown objective function code : " << objective_function;
@@ -453,6 +459,8 @@ int main(int argc, char *argv[]) {
       KALDI_LOG << aann.Report();
     } else if (objective_function == "aann-ncca") {
       KALDI_LOG << aannncca.Report();
+    } else if (objective_function == "aann-cm") {
+      KALDI_LOG << aanncm.Report();
       //
     } else {
       KALDI_ERR << "Unknown objective function code : " << objective_function;

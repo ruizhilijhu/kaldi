@@ -12,18 +12,19 @@
 feats_nj=10
 train_nj=10
 decode_nj=20
-stage=4
+stage=0
 data_fbank_clean=data-fbank13-clean
 data_fbank_allnoise=data-fbank13-allnoise
 dropout_schedule=0.2,0.2,0.2,0.2,0.2,0.0
 dnn_hidden_unit=256
-exp=
+exp=exp
+dnn_suffix=
 
 . ./cmd.sh 
 [ -f path.sh ] && . ./path.sh
 . utils/parse_options.sh || exit 1
 
-dnnid=mono_dnn-${dnn_hidden_unit}
+dnnid=mono_dnn-${dnn_hidden_unit}${dnn_suffix}
 set -e # Exit immediately if a command exits with a non-zero status.
 echo "$0 $@"  # Print the command line for logging
 
@@ -31,7 +32,7 @@ echo "$0 $@"  # Print the command line for logging
 echo ============================================================================
 echo "                Monophone training & decoding                             "
 echo ============================================================================
-outdir=exp/mono # the only output
+outdir=$exp/mono # the only output
 if [ $stage -le 0 ]; then
     
     steps/train_mono.sh  --nj "$train_nj" --cmd "$train_cmd" data/train data/lang $outdir
@@ -49,7 +50,7 @@ outdir0=$outdir
 echo ============================================================================
 echo "                Monophone aligment                                        "
 echo ============================================================================
-outdir=exp/mono_ali # the only output
+outdir=$exp/mono_ali # the only output
 if [ $stage -le 1 ]; then
     
     steps/align_si.sh --boost-silence 1.25 --nj "$train_nj" --cmd "$train_cmd" \
@@ -77,7 +78,7 @@ outdir1=$outdir
 echo ============================================================================
 echo "                Training DNN                                              "
 echo ============================================================================
-outdir=exp/${dnnid} # the only output
+outdir=$exp/${dnnid} # the only output
 if [ $stage -le 2 ]; then
     
     # input config
@@ -105,7 +106,7 @@ outdir2=$outdir
 echo ============================================================================
 echo "                Decoding on all data set (CLEAN and Allnoise)             "
 echo ============================================================================
-outdir=exp/${dnnid} # the only output
+outdir=$exp/${dnnid} # the only output
 if [ $stage -le 3 ]; then
     
     #    decode on clean
@@ -135,10 +136,10 @@ outdir3=$outdir
 echo ============================================================================
 echo "                Extract BN features for each layer               "
 echo ============================================================================
-outdir=exp/${dnnid}-bn # the only output
+outdir=$exp/${dnnid}-bn # the only output
 if [ $stage -le 4 ]; then
     mkdir -p $outdir
-    idxComponents=$(nnet-info $outdir2/final.nnet | grep 'Sigmoid\|Softmax' | awk '{print $2}')
+    idxComponents=$(nnet-info $outdir2/final.nnet | grep 'Sigmoid\|Softmax'| awk '{print $2}')
     numComponents=$(nnet-info $outdir2/final.nnet | grep num-components | awk '{print $2}')
     for idx in ${idxComponents[@]}; do
 	echo "extract bn features for component $idx by removing last $((numComponents-idx)) components"
@@ -162,26 +163,25 @@ outdir4=$outdir
 
 
 
+echo ============================================================================
+echo "                Compute co-activation matrix for each layer               "
+echo ============================================================================
+outdir=$exp/${dnnid}-bn_cm # the only output
+if [ $stage -le 5 ]; then
+    mkdir -p $outdir
+    idxComponents=$(nnet-info $outdir2/final.nnet | grep 'Sigmoid\|Softmax'| awk '{print $2}')
+    for idx in ${idxComponents[@]}; do
+	echo "compute co-activation matrix for component $idx"
 
-
-
-# echo ============================================================================
-# echo "                Compute co-activation matrix for each layer               "
-# echo ============================================================================
-# outdir=exp/${dnnid}-bn_cm # the only output
-# if [ $stage -le 5 ]; then
-#     mkdir -p $outdir
-#     idxComponents=$(nnet-info $outdir2/final.nnet | grep 'Sigmoid\|Softmax' | awk '{print $2}')
-#     for idx in ${idxComponents[@]}; do
-# 	echo "compute co-activation matrix for component $idx"
-# 	( est-coact-mat scp:$outdir4/$idx/feats.scp $outdir/${idx}.mat || exit 1 ) & sleep 2
-# 	( est-coact-mat --binary=false scp:$outdir4/$idx/feats.scp $outdir/${idx}.txt.mat || exit 1 ) & sleep 2
+	( est-coact-mat scp:$outdir4/$idx/feats.scp $outdir/${idx}.mat || exit 1 ) & sleep 2
+	( est-coact-mat --binary=false scp:$outdir4/$idx/feats.scp $outdir/${idx}.txt.mat || exit 1 ) & sleep 2	
+	( est-coact-mat scp:$outdir4/$((idx-1))/feats.scp $outdir/$((idx-1)).mat || exit 1 ) & sleep 2
+	( est-coact-mat --binary=false scp:$outdir4/$((idx-1))/feats.scp $outdir/$((idx-1)).txt.mat || exit 1 ) & sleep 2	
 	
-	
-#     done
+    done
     
-# fi
-# outdir5=$outdir
+fi
+outdir5=$outdir
 
 
 

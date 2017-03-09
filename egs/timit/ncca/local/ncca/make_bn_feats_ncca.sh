@@ -52,7 +52,7 @@ utils/copy_data_dir.sh $srcdata $data; rm $data/{feats,cmvn}.scp 2>/dev/null
 
 required="$srcdata/feats.scp $dnnnet $nndir/final.feature_transform"
 for f in $required; do
-  [ ! -f $f ] && echo "$0: Missing $f" && exit 1;
+  [ ! -f $f -a ! -L $f ] && echo "$0: Missing $f" && exit 1;
 done
 
 name=$(basename $srcdata)

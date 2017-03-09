@@ -15,6 +15,8 @@ aann_mlp=
 minibatch_size=
 randomizer_seed=777
 randomizer_size=32768
+objective_function='aann-ncca' # aann-cm
+ref_cm=
 # End configuration section.
 
 echo "$0 $@"  # Print the command line for logging
@@ -26,7 +28,7 @@ set -euo pipefail
 echo $#
 if [ $# != 3 ]; then
    echo "usage: $0 [options] <data> <nnet-dir> <log-dir> ";
-   echo "Compute fn for a given data set on a dnn and aann for aann-ncca"
+   echo "Compute fn for a given data set on a dnn and aann for aann-cm and aann-ncca"
    echo "dnn is the truned one."
    echo "options: "
    echo "  --cmd 'queue.pl <queue opts>'   # how to run jobs."
@@ -46,6 +48,8 @@ required="$data/feats.scp $mlp $nndir/final.feature_transform $aann_mlp"
 for f in $required; do
   [ ! -f $f ] && echo "$0: Missing $f" && exit 1;
 done
+
+[ $objective_function == 'aann-cm' -a -z $ref_cm ] && echo "Missing reference coactivation matrix!" && exit 1
 
 mkdir -p $logdir
 
@@ -83,9 +87,9 @@ o_feats=`echo $feats | sed 's@ark:copy-feats@ark,o:copy-feats@g'`
 labels="$o_feats nnet-forward $nndir/final.feature_transform ark:- ark:- | feat-to-post ark:- ark:- |"
 
 # Run the forward pass,
-$cmd $logdir/compute_fn_loss_aann-ncca.log \
+$cmd $logdir/compute_fn_loss_${objective_function}.log \
      nnet-train-frmshuff-ncca $nnet_forward_opts \
-     --objective-function=aann-ncca \
+     --objective-function=${objective_function} \
      --minibatch-size=${minibatch_size} \
      --randomizer-seed=${randomizer_seed} \
      --randomizer-size=${randomizer_size} \
@@ -94,8 +98,9 @@ $cmd $logdir/compute_fn_loss_aann-ncca.log \
      --cross-validate=true \
      --randomize=false \
      --feature-transform=$nndir/final.feature_transform \
+     ${ref_cm:+ --ncca-ref-mat="${ref_cm}"} \
      "$feats" "$labels" $mlp || exit 1;
 
-info=$(grep "AvgLoss:" $logdir/compute_fn_loss_aann-ncca.log | tail -n 1 | awk '{ print $4; }')
-echo $info > $logdir/fn_mb
+info=$(grep "AvgLoss:" $logdir/compute_fn_loss_${objective_function}.log | tail -n 1 | awk '{ print $4; }')
+echo $info > $logdir/fn
 echo "Succeeded compute fn for $data --> $info"
